@@ -35,6 +35,94 @@ def test_make_element_rejects_multi_character_symbols() -> None:
         game.make_element("AB")
 
 
+def test_has_possible_moves_detects_playable_board() -> None:
+    board = board_from_rows(
+        "ABA",
+        "CAE",
+        "FGH",
+    )
+
+    assert game.has_possible_moves(board) is True
+
+
+def test_has_possible_moves_detects_dead_board() -> None:
+    board = board_from_rows(
+        "ABC",
+        "DEF",
+        "GHI",
+    )
+
+    assert game.has_possible_moves(board) is False
+
+
+def test_initialize_game_builds_state_through_fill_and_cascade(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    filled_state = state_from_rows(
+        "ABC",
+        "DEF",
+        "GHI",
+    )
+    cascaded_state = state_from_rows(
+        "ABC",
+        "DEF",
+        "GHI",
+    )
+
+    def fake_fill_empty_spaces(current_state: game.BoardState) -> game.BoardState:
+        assert rows_from_state(current_state) == (
+            "000",
+            "000",
+            "000",
+        )
+        assert current_state["score"] == 0
+        return filled_state
+
+    def fake_process_cascade(current_state: game.BoardState) -> game.BoardState:
+        assert current_state == filled_state
+        return cascaded_state
+
+    monkeypatch.setattr(game, "fill_empty_spaces", fake_fill_empty_spaces)
+    monkeypatch.setattr(game, "process_cascade", fake_process_cascade)
+    monkeypatch.setattr(game, "has_possible_moves", lambda board: True)
+
+    assert game.initialize_game(3) == cascaded_state
+
+
+def test_initialize_game_retries_until_board_is_playable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dead_state = state_from_rows(
+        "ABC",
+        "DEF",
+        "GHI",
+    )
+    playable_state = state_from_rows(
+        "ABA",
+        "CAE",
+        "FGH",
+    )
+    cascaded_states = iter((dead_state, playable_state))
+    attempts = {"count": 0}
+
+    monkeypatch.setattr(game, "fill_empty_spaces", lambda current_state: current_state)
+
+    def fake_process_cascade(current_state: game.BoardState) -> game.BoardState:
+        attempts["count"] += 1
+        return next(cascaded_states)
+
+    monkeypatch.setattr(game, "process_cascade", fake_process_cascade)
+    monkeypatch.setattr(game, "has_possible_moves", game.has_possible_moves)
+
+    assert game.initialize_game(3) == playable_state
+    assert attempts["count"] == 2
+
+
+def test_initialize_game_rejects_impossible_board_sizes() -> None:
+    with pytest.raises(ValueError):
+        game.initialize_game(2)
+
+
 def test_find_matches_returns_horizontal_and_vertical_runs() -> None:
     board = board_from_rows(
         "AAAX",
