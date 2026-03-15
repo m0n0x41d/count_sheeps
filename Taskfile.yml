@@ -1,0 +1,12 @@
+version: "3"
+
+tasks:
+  run:
+    desc: Run the game loop
+    cmds:
+      - uv run game.py
+
+  test:
+    desc: Run pytest without creating pytest cache files
+    cmds:
+      - uv run python -m pytest -p no:cacheprovider -q
