@@ -1,9 +1,16 @@
 import random
-from typing import Final, Literal, ReadOnly, TypedDict
+from collections.abc import Callable
+from typing import Any, Final, Literal, ReadOnly, TypedDict
 
 EMPTY: Final[str] = "0"
 SYMBOLS: Final[tuple[str, ...]] = ("A", "B", "C", "D", "E", "F")
 RNG = random.Random()
+
+
+def pipe(value: object, *fns: Callable[[Any], Any]) -> Any:
+    for fn in fns:
+        value = fn(value)
+    return value
 
 
 class Element(TypedDict):
@@ -71,11 +78,13 @@ def initialize_game(board_size: int = 8) -> BoardState:
     if board_size < 3:
         raise ValueError("Board size must be at least 3 to guarantee a possible move.")
 
-    empty_cells = make_empty_cells(board_size)
-    empty_board = make_board(board_size, empty_cells)
-    empty_state = make_board_state(empty_board, 0)
-    filled_state = fill_empty_spaces(empty_state)
-    initialized_state = process_cascade(filled_state)
+    initialized_state = pipe(
+        make_empty_cells(board_size),
+        lambda cells: make_board(board_size, cells),
+        lambda board: make_board_state(board, 0),
+        fill_empty_spaces,
+        process_cascade,
+    )
     if has_possible_moves(initialized_state["board"]):
         return initialized_state
 
