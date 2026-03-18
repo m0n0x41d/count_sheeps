@@ -255,6 +255,10 @@ def fill_empty_spaces(current_state: BoardState) -> BoardState:
 def process_cascade(state: BoardState) -> BoardState:
     while matches := find_matches(state["board"]):
         state = remove_matches(state, matches)
+        # It is still almost Unix-Like Pipeline!
+        # We can easily add state change/read steps here.
+        # print("DEBUG")
+        # draw(state["board"])
         state = fill_empty_spaces(state)
     return state
 
