@@ -266,14 +266,21 @@ def fill_empty_spaces(current_state: BoardState) -> BoardState:
     return make_board_state(new_board, current_state["score"])
 
 
+def build_game_pipeline() -> Callable[[BoardState], BoardState]:
+    def pipeline(state: BoardState) -> BoardState:
+        return pipe(
+            state,
+            fill_empty_spaces,
+            process_cascade,
+        )
+    return pipeline
+
+
 def process_cascade(state: BoardState) -> BoardState:
+    pipeline = build_game_pipeline()
     while matches := find_matches(state["board"]):
         state = remove_matches(state, matches)
-        # It is still almost Unix-Like Pipeline!
-        # We can easily add state change/read steps here.
-        # print("DEBUG")
-        # draw(state["board"])
-        state = fill_empty_spaces(state)
+        state = pipeline(state)
     return state
 
 
