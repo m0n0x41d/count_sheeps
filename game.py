@@ -1,5 +1,6 @@
 import random
 from collections.abc import Callable
+from functools import partial
 from typing import Any, Final, Literal, ReadOnly, TypedDict
 
 EMPTY: Final[str] = "0"
@@ -79,9 +80,12 @@ def initialize_game(board_size: int = 8) -> BoardState:
         raise ValueError("Board size must be at least 3 to guarantee a possible move.")
 
     initialized_state = pipe(
+        # make board cells
         make_empty_cells(board_size),
-        lambda cells: make_board(board_size, cells),
-        lambda board: make_board_state(board, 0),
+        # and board.
+        partial(make_board, board_size),
+        # Now prepare BoardState.
+        partial(make_board_state, score=0),
         fill_empty_spaces,
         process_cascade,
     )
