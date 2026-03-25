@@ -1,4 +1,4 @@
-import { symbolToEmoji } from "./symbols"
+import { symbolToSprite } from "./symbols"
 import type { Board, Pos, SerializedMatch } from "./types"
 
 let boardEl: HTMLElement
@@ -65,12 +65,30 @@ function cellAt(row: number, col: number): HTMLElement | null {
     return boardEl.querySelector(`.cell[data-row="${row}"][data-col="${col}"]`)
 }
 
+function setCellSprite(cell: HTMLElement, symbol: string): void {
+    const src = symbolToSprite(symbol)
+    if (!src) {
+        cell.innerHTML = ""
+        return
+    }
+    const existing = cell.querySelector("img")
+    if (existing) {
+        existing.src = src
+    } else {
+        const img = document.createElement("img")
+        img.src = src
+        img.draggable = false
+        cell.innerHTML = ""
+        cell.appendChild(img)
+    }
+}
+
 export function renderBoard(board: Board): void {
     const cells = boardEl.querySelectorAll<HTMLElement>(".cell")
     cells.forEach(cell => {
         const row = Number(cell.dataset.row)
         const col = Number(cell.dataset.col)
-        cell.textContent = symbolToEmoji(board[row][col])
+        setCellSprite(cell, board[row][col])
         cell.className = "cell"
     })
 }
@@ -102,7 +120,7 @@ export function clearCells(board: Board): void {
                 const cell = cellAt(row, col)
                 if (cell) {
                     cell.classList.add("clearing")
-                    cell.textContent = ""
+                    cell.innerHTML = ""
                 }
             }
         }
@@ -114,11 +132,11 @@ export function renderBoardAnimated(board: Board): void {
     cells.forEach(cell => {
         const row = Number(cell.dataset.row)
         const col = Number(cell.dataset.col)
-        const newSymbol = symbolToEmoji(board[row][col])
-        const wasEmpty = cell.textContent === ""
+        const symbol = board[row][col]
+        const wasEmpty = !cell.querySelector("img")
         cell.className = "cell"
-        cell.textContent = newSymbol
-        if (wasEmpty && newSymbol !== "") {
+        setCellSprite(cell, symbol)
+        if (wasEmpty && symbol !== "0") {
             cell.classList.add("filling")
         }
     })

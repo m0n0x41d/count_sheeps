@@ -1,13 +1,13 @@
-const SYMBOL_EMOJI: Record<string, string> = {
-    "A": "\uD83D\uDC11",
-    "B": "\uD83D\uDC04",
-    "C": "\uD83C\uDF19",
-    "D": "\u2B50",
-    "E": "\u2601\uFE0F",
-    "F": "\uD83D\uDCA4",
+const SYMBOL_SPRITE: Record<string, string> = {
+    "A": "./sprites/sheep_pink.png",
+    "B": "./sprites/sheep_blue.png",
+    "C": "./sprites/sheep_yellow.png",
+    "D": "./sprites/sheep_white.png",
+    "E": "./sprites/sheep_black.png",
+    "F": "./sprites/sheep_brown.png",
     "0": "",
 }
 
-export function symbolToEmoji(symbol: string): string {
-    return SYMBOL_EMOJI[symbol] ?? "?"
+export function symbolToSprite(symbol: string): string {
+    return SYMBOL_SPRITE[symbol] ?? ""
 }
