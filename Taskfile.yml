@@ -4,7 +4,7 @@ tasks:
   run:
     desc: Run the game loop
     cmds:
-      - uv run game.py
+      - uv run python -m src
 
   test:
     desc: Run pytest without creating pytest cache files
