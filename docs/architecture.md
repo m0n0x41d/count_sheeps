@@ -1,22 +1,26 @@
 # Layered Functional Architecture
 
-The game is structured as six layers, each building on the one below.
-Every layer adds exactly one concept and hides it behind a clean boundary.
+The game is structured as five pure layers plus a thin I/O shell.
+Each layer adds exactly one concept and hides it behind a clean boundary.
 
 ```
-Layer 5  session.py    I/O shell (impure)
-Layer 4  rules.py      Game mechanics
-Layer 3  cascade.py    Cascade step stream
-Layer 2  match.py      Pattern detection
-Layer 1  board.py      Elements on a grid
-Layer 0  core.py       Grid primitives
+Shell    api.ts          Stateful API for the frontend (only impure module)
+Layer 4  rules.ts        Game mechanics
+Layer 3  cascade.ts      Cascade step stream
+Layer 2  match.ts        Pattern detection
+Layer 1  board.ts        Elements on a grid
+Layer 0  core.ts         Grid primitives
+         rng.ts          Seedable PRNG
 ```
 
 Import rule: a layer may only import from layers below it, never sideways or up.
 
+All core modules live in `web/src/core/`. The frontend shell (`api.ts`, `controller.ts`,
+`renderer.ts`, `animator.ts`) lives in `web/src/`.
+
 ---
 
-## Layer 0 — `core.py`: Grid Primitives
+## Layer 0 — `core.ts`: Grid Primitives
 
 No game knowledge. Pure math on positions and 2D grids.
 
@@ -24,20 +28,38 @@ No game knowledge. Pure math on positions and 2D grids.
 
 | Name | Definition | Purpose |
 |------|-----------|---------|
-| `Pos` | `tuple[int, int]` | (row, col) coordinate |
-| `Size` | `int` | Board dimension, always > 0 |
-| `Grid[T]` | `tuple[tuple[T, ...], ...]` | Immutable square 2D array |
+| `Pos` | `readonly [number, number]` | (row, col) coordinate |
+| `Size` | `number` | Board dimension, always > 0 |
+| `Grid<T>` | `ReadonlyArray<ReadonlyArray<T>>` | Immutable square 2D array |
 
-**Key functions**: `pipe`, `compose`, `make_pos`, `make_grid`, `get`, `set_cell`, `swap`, `neighbors`, `adjacent`
+**Key functions**: `pipe`, `compose`, `makePos`, `makeGrid`, `get`, `setCell`, `swap`, `neighbors`, `adjacent`
+
+**Utilities**: `posKey(pos)` encodes a `Pos` as `"row,col"` string for use as `Set`/`Map` keys.
+`parsePos(key)` reverses the encoding.
 
 **What it makes inexpressible**:
-- `make_pos` returns `None` for out-of-bounds coordinates — invalid positions cannot enter the system through the public API.
-- `Grid` is a nested tuple — mutation is impossible.
-- `set_cell` and `swap` return new grids.
+- `makePos` returns `null` for out-of-bounds coordinates — invalid positions cannot enter the system through the public API.
+- `Grid` is `ReadonlyArray<ReadonlyArray<T>>` — mutation is a type error.
+- `setCell` and `swap` return new grids.
 
 ---
 
-## Layer 1 — `board.py`: Elements on a Grid
+## `rng.ts`: Seedable PRNG
+
+Provides a seedable pseudo-random number generator (mulberry32).
+
+| Name | Definition | Purpose |
+|------|-----------|---------|
+| `RNG` | `{ choice<T>(items: readonly T[]): T }` | Opaque RNG with a single method |
+
+`createRNG(seed?)` returns an `RNG` instance. Internal state is encapsulated —
+the only observable behavior is the sequence of `choice()` results.
+
+RNG is always passed as an explicit parameter, never a module global.
+
+---
+
+## Layer 1 — `board.ts`: Elements on a Grid
 
 Knows that cells contain elements. No knowledge of matches, moves, or scores.
 
@@ -45,21 +67,21 @@ Knows that cells contain elements. No knowledge of matches, moves, or scores.
 
 | Name | Definition | Purpose |
 |------|-----------|---------|
-| `Element` | `TypedDict` with `symbol: str` | A single cell's content |
-| `Board` | `Grid[Element]` | The playing field |
+| `Element` | `{ readonly symbol: string }` | A single cell's content |
+| `Board` | `Grid<Element>` | The playing field |
 | `EMPTY` | `"0"` | Marker for an empty cell |
-| `SYMBOLS` | `("A".."F")` | Valid game symbols |
+| `SYMBOLS` | `["A".."F"]` | Valid game symbols |
 
-**Key functions**: `make_element`, `is_empty`, `symbol_at`, `apply_gravity`, `fill_empty`
+**Key functions**: `makeElement`, `isEmpty`, `symbolAt`, `applyGravity`, `fillEmpty`
 
 **What it makes inexpressible**:
-- `make_element` returns `None` for invalid symbols — no way to construct a bad element through the public API.
-- "Empty" is always an explicit `EMPTY` marker, never a null/None cell.
-- `apply_gravity` is pure: returns a new board with elements dropped to the bottom of each column.
+- `makeElement` returns `null` for invalid symbols — no way to construct a bad element through the public API.
+- "Empty" is always an explicit `EMPTY` marker, never a null/undefined cell.
+- `applyGravity` is pure: returns a new board with elements dropped to the bottom of each column.
 
 ---
 
-## Layer 2 — `match.py`: Pattern Detection
+## Layer 2 — `match.ts`: Pattern Detection
 
 Knows what a "match" is. No knowledge of moves, scores, or effects.
 
@@ -67,18 +89,18 @@ Knows what a "match" is. No knowledge of moves, scores, or effects.
 
 | Name | Definition | Purpose |
 |------|-----------|---------|
-| `MatchKind` | `Literal["line3", "line4", "line5", "cross"]` | Pattern classification |
-| `Match` | `TypedDict` with `kind`, `element`, `positions: frozenset[Pos]` | A detected pattern |
+| `MatchKind` | `"line3" \| "line4" \| "line5" \| "cross"` | Pattern classification |
+| `Match` | `{ kind, element, positions: ReadonlySet<string> }` | A detected pattern |
 
-The key design decision: a match is a **set of positions**, not a direction + start + length.
+The key design decision: a match is a **set of position keys**, not a direction + start + length.
 This representation naturally handles lines, crosses, T-shapes, and L-shapes —
-any connected pattern is just a `frozenset[Pos]`.
+any connected pattern is just a `ReadonlySet<string>` of `posKey`-encoded positions.
 
-**Key functions**: `find_matches`, `find_runs`, `merge_crosses`, `classify_match`
+**Key functions**: `findMatches`, `findRuns`, `mergeCrosses`, `classifyMatch`
 
 **How cross detection works**:
-1. `find_runs` scans all rows and columns for 3+ consecutive same symbols.
-2. `merge_crosses` uses union-find to merge runs that share a position and the same element.
+1. `findRuns` scans all rows and columns for 3+ consecutive same symbols.
+2. `mergeCrosses` uses union-find to merge runs that share a position and the same element.
 3. Merged groups get kind `"cross"`.
 
 ```
@@ -89,12 +111,12 @@ any connected pattern is just a `frozenset[Pos]`.
 ```
 
 **What it makes inexpressible**:
-- `make_match` returns `None` for fewer than 3 positions or EMPTY element.
+- `makeMatch` returns `null` for fewer than 3 positions or EMPTY element.
 - Matches always carry their element — impossible to have a match where positions disagree on symbol.
 
 ---
 
-## Layer 3 — `cascade.py`: Cascade Step Stream
+## Layer 3 — `cascade.ts`: Cascade Step Stream
 
 Knows that matches change the board. No knowledge of player moves or scoring.
 
@@ -102,8 +124,8 @@ Knows that matches change the board. No knowledge of player moves or scoring.
 
 | Name | Definition | Purpose |
 |------|-----------|---------|
-| `CascadePhase` | `TypedDict` with `board_before`, `matches`, `cleared`, `fallen`, `filled` | One complete cascade step with all intermediate boards |
-| `CascadeResult` | `TypedDict` with `phases` and final `board` | Full cascade history |
+| `CascadePhase` | `{ board_before, matches, cleared, fallen, filled }` | One complete cascade step with all intermediate boards |
+| `CascadeResult` | `{ phases, board }` | Full cascade history |
 
 This is the **step stream** that the frontend needs for animation.
 Each phase captures every intermediate board state:
@@ -117,15 +139,15 @@ board_before  ->  matches found
 
 The cascade loops until no more matches are found. Each iteration produces one `CascadePhase`.
 
-**Key functions**: `clear_matches`, `cascade_step`, `run_cascade`
+**Key functions**: `clearMatches`, `cascadeStep`, `runCascade`
 
 **What it makes inexpressible**:
-- `cascade_step` returns `None` when the board is stable — no empty phase objects.
+- `cascadeStep` returns `null` when the board is stable — no empty phase objects.
 - Every phase captures the full before/after chain — no information loss between steps.
 
 ---
 
-## Layer 4 — `rules.py`: Game Mechanics
+## Layer 4 — `rules.ts`: Game Mechanics
 
 Knows what's valid and how to score. No I/O.
 
@@ -133,39 +155,48 @@ Knows what's valid and how to score. No I/O.
 
 | Name | Definition | Purpose |
 |------|-----------|---------|
-| `ValidMove` | `TypedDict` with `tag: "valid"`, `cascade`, `score` | Successful move result |
-| `InvalidMove` | `TypedDict` with `tag: "invalid"`, `reason` | Failed move with explanation |
-| `MoveResult` | `ValidMove \| InvalidMove` | Sum type — move always produces one or the other |
-| `GameState` | `TypedDict` with `board`, `size`, `score`, `drowsiness`, `rng` | Complete game snapshot |
+| `ValidMove` | `{ tag: "valid", cascade, score }` | Successful move result |
+| `InvalidMove` | `{ tag: "invalid", reason }` | Failed move with explanation |
+| `MoveResult` | `ValidMove \| InvalidMove` | Discriminated union — move always produces one or the other |
+| `GameState` | `{ board, size, score, drowsiness, rng }` | Complete game snapshot |
 
 **Scoring**: each `MatchKind` has a base score (line3=30, line4=80, line5=150, cross=200),
 multiplied by the cascade phase number (phase 1 = 1x, phase 2 = 2x, etc.).
 
-**Key functions**: `validate_move`, `score_cascade`, `has_possible_moves`, `initialize_board`, `tick`
+**Key functions**: `validateMove`, `scoreCascade`, `hasPossibleMoves`, `initializeBoard`, `tick`
 
 **What it makes inexpressible**:
-- `validate_move` returns `InvalidMove` for non-adjacent or non-matching swaps — no silent passthrough.
+- `validateMove` returns `InvalidMove` for non-adjacent or non-matching swaps — no silent passthrough.
 - Score is computed from cascade phases, not set directly.
-- `initialize_board` guarantees: no initial matches + at least one possible move.
+- `initializeBoard` guarantees: no initial matches + at least one possible move.
 
 ---
 
-## Layer 5 — `session.py`: I/O Shell (Impure)
+## Shell — `api.ts`: Stateful API
 
-The only layer with side effects. Thin shell over the pure core.
+The only module with mutable state. Thin bridge between the pure core and the frontend.
 
-**Types**
+Holds a `GameState` and exposes three functions:
+- `initGame(size)` — creates a new game, returns serialized state
+- `tryMove(r1, c1, r2, c2)` — attempts a swap, returns `MoveResult` with cascade phases
+- `getState()` — returns current state
 
-| Name | Definition | Purpose |
-|------|-----------|---------|
-| `SwapCmd` | `TypedDict` with `tag: "swap"`, `p1`, `p2` | Player swap command |
-| `QuitCmd` | `TypedDict` with `tag: "quit"` | Exit command |
-| `Command` | `SwapCmd \| QuitCmd` | Sum type for all commands |
+Converts core types (typed `Element` objects, `ReadonlySet` positions) to frontend types
+(plain `string[][]` boards, `[number, number][]` positions) at the serialization boundary.
 
-**Key functions**: `parse_command`, `apply_command`, `render_board`, `run_game`
+---
 
-All parsing and validation happens here. Invalid input returns `None` or prints an error.
-The game loop is a simple `while True` that reads, parses, applies, and renders.
+## Frontend
+
+The frontend is a thin animation layer over the pure core:
+
+```
+controller.ts   User input state machine (idle -> selected -> animating -> game_over)
+renderer.ts     DOM construction and visual updates
+animator.ts     Cascade phase animation with configurable timing
+symbols.ts      Symbol-to-emoji mapping (A=sheep, B=cow, C=moon, D=star, E=cloud, F=sleep)
+types.ts        Frontend type definitions (serialized forms of core types)
+```
 
 ---
 
@@ -174,25 +205,23 @@ The game loop is a simple `while True` that reads, parses, applies, and renders.
 ### Functional core, imperative shell
 
 Layers 0–4 are pure functions: immutable data in, new data out, no side effects.
-Side effects (console I/O, RNG creation) live only in layer 5.
-RNG is passed as an explicit `Random` parameter, not a module global.
+Side effects (DOM manipulation, RNG creation) live only in `api.ts` and the frontend shell.
+RNG is passed as an explicit parameter, not a module global.
 
 ### Make illegal states unrepresentable
 
-Each layer uses smart constructors (`make_pos`, `make_element`, `make_match`) that return
-`None` for invalid inputs. Sum types (`ValidMove | InvalidMove`, `SwapCmd | QuitCmd`)
+Each layer uses smart constructors (`makePos`, `makeElement`, `makeMatch`) that return
+`null` for invalid inputs. Discriminated unions (`ValidMove | InvalidMove`)
 eliminate boolean flags and stringly-typed error handling.
 
 ### Pipeline style
 
 Data flows top-to-bottom, one operation per line. `pipe(value, f, g, h)` instead of `h(g(f(value)))`.
 
-### Why TypedDict and not dataclasses/NamedTuple
+### Why plain objects and not classes
 
-TypedDict gives us plain dicts with type annotations and `ReadOnly` fields.
-No `__init__`, no `__eq__` magic, no inheritance hierarchy.
-Construction is just `{"key": value}` — transparent data, no hidden behavior.
+Plain objects with `readonly` fields. No `constructor`, no `this`, no inheritance.
+Construction is just `{ key: value }` — transparent data, no hidden behavior.
 
-The tradeoff: dicts are not hashable, so `frozenset[Match]` is impossible.
-We use `tuple[Match, ...]` for match collections instead.
-Positions stay as `frozenset[Pos]` since `Pos = tuple[int, int]` is hashable.
+The tradeoff: objects are not hashable in JS, so match positions use `Set<string>` with
+`posKey`-encoded position strings instead of `Set<Pos>`.
